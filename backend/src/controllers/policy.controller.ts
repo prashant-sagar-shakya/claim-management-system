@@ -1,26 +1,29 @@
 import { Request, Response, NextFunction } from "express";
 import { PolicyService } from "../services/policy.service";
-import UserModel, { IUser } from "../models/user.model"; // Import IUser
+import UserModel, { IUser } from "../models/user.model";
 import { IPolicy } from "../models/policy.model";
-import mongoose from "mongoose";
+import mongoose, { Types } from "mongoose";
 
 const transformPolicyForClient = (policyDoc: IPolicy) => {
   const policyObject = policyDoc.toObject
     ? policyDoc.toObject({ virtuals: true, getters: true })
     : { ...policyDoc };
-
   if (!policyObject.id && policyObject._id) {
     policyObject.id = policyObject._id.toString();
   }
 
-  // Transform populated policyholder_id to user field for client
   if (
     policyObject.policyholder_id &&
-    typeof policyObject.policyholder_id === "object"
+    typeof policyObject.policyholder_id === "object" &&
+    policyObject.policyholder_id !== null &&
+    !Array.isArray(policyObject.policyholder_id)
   ) {
-    const ph = policyObject.policyholder_id as unknown as IUser; // Cast to IUser
+    const ph = policyObject.policyholder_id as unknown as IUser & {
+      _id?: Types.ObjectId;
+      id?: string;
+    };
     policyObject.user = {
-      id: ph._id ? ph._id.toString() : (ph as any).id, // Use _id or id if available
+      id: ph.id || (ph._id ? ph._id.toString() : undefined),
       firstName: ph.firstName,
       lastName: ph.lastName,
       email: ph.email,
@@ -29,17 +32,11 @@ const transformPolicyForClient = (policyDoc: IPolicy) => {
     typeof policyObject.policyholder_id === "string" ||
     policyObject.policyholder_id instanceof mongoose.Types.ObjectId
   ) {
-    // If only ID is present (not populated in some cases, or if you want to send just ID)
-    // For AdminPolicies.tsx, we expect it to be populated by the service
-    // This else-if is more of a fallback for other scenarios or direct ID sending.
-    // However, for current getAllPolicies which populates it, this block won't be hit for policyholder_id.
-    policyObject.user = { id: policyObject.policyholder_id.toString() }; // Only id, no name/email
+    policyObject.user = { id: policyObject.policyholder_id.toString() };
   }
 
   delete policyObject._id;
   delete policyObject.__v;
-  // Optionally delete policyholder_id if client only uses policy.user
-  // delete policyObject.policyholder_id;
 
   return policyObject;
 };
@@ -50,27 +47,38 @@ export class PolicyController {
     res: Response,
     next: NextFunction
   ): Promise<void> {
+    console.log("POLICY_CONTROLLER: handleCreatePolicy called.");
+    console.log("POLICY_CONTROLLER: Request body:", req.body);
+    console.log(
+      "POLICY_CONTROLLER: Authenticated user (from token):",
+      req.user
+    );
+
     try {
-      let policyholder_id_from_req: string | undefined = req.body.user_id;
+      let policyholder_id_from_body: string | undefined = req.body.user_id; // Frontend sends user_id
       let policyholder_id: string;
 
-      if (policyholder_id_from_req) {
-        policyholder_id = policyholder_id_from_req;
-      } else if (req.user?.id) {
+      if (
+        policyholder_id_from_body &&
+        Types.ObjectId.isValid(policyholder_id_from_body)
+      ) {
+        policyholder_id = policyholder_id_from_body;
+        console.log(
+          `POLICY_CONTROLLER: policyholder_id taken from req.body.user_id: ${policyholder_id}`
+        );
+      } else if (req.user?.id && Types.ObjectId.isValid(req.user.id)) {
         policyholder_id = req.user.id;
+        console.log(
+          `POLICY_CONTROLLER: policyholder_id taken from req.user.id: ${policyholder_id}`
+        );
       } else {
-        const testUser = await UserModel.findOne().select("_id").lean();
-        if (testUser && testUser._id) {
-          policyholder_id = testUser._id.toString();
-        } else {
-          res
-            .status(400)
-            .json({
-              message:
-                "Policyholder ID (user_id) is required and no fallback user found.",
-            });
-          return;
-        }
+        console.error(
+          "POLICY_CONTROLLER: Valid policyholder_id (user_id) is required and not found or invalid."
+        );
+        res
+          .status(400)
+          .json({ message: "Valid policyholder ID (user_id) is required." });
+        return;
       }
 
       const {
@@ -82,8 +90,17 @@ export class PolicyController {
         description,
         terms_conditions,
         policy_document_url,
-        created_by,
       } = req.body;
+
+      let created_by_id: string | undefined = undefined;
+      if (req.user?.id && Types.ObjectId.isValid(req.user.id)) {
+        // Assuming creator is the authenticated user
+        created_by_id = req.user.id;
+      }
+
+      console.log(
+        `POLICY_CONTROLLER: Extracted from body - type: ${policy_type}, coverage: ${coverage_amount}, premium: ${premium_amount}, start: ${start_date}, end: ${end_date}`
+      );
 
       if (
         !policy_type ||
@@ -92,6 +109,9 @@ export class PolicyController {
         !start_date ||
         !end_date
       ) {
+        console.error(
+          "POLICY_CONTROLLER: Missing required policy fields in request body."
+        );
         res
           .status(400)
           .json({
@@ -111,15 +131,24 @@ export class PolicyController {
         description,
         terms_conditions,
         policy_document_url,
-        created_by,
+        created_by: created_by_id,
       };
+      console.log(
+        "POLICY_CONTROLLER: Prepared policyData for service:",
+        policyDataToService
+      );
 
       const newPolicy = await PolicyService.createPolicy(policyDataToService);
+      console.log(
+        "POLICY_CONTROLLER: Policy created by service, ID:",
+        newPolicy.id || newPolicy._id
+      );
       res.status(201).json(transformPolicyForClient(newPolicy));
     } catch (error: any) {
       console.error(
-        "Error in PolicyController.handleCreatePolicy:",
-        error.message
+        "POLICY_CONTROLLER: Error in handleCreatePolicy:",
+        error.message,
+        error.stack
       );
       res
         .status(500)
@@ -146,10 +175,6 @@ export class PolicyController {
       const policies = await PolicyService.getPoliciesByUserId(userId);
       res.status(200).json(policies.map(transformPolicyForClient));
     } catch (error: any) {
-      console.error(
-        "Error in PolicyController.handleGetUserPolicies:",
-        error.message
-      );
       res
         .status(500)
         .json({
@@ -172,10 +197,6 @@ export class PolicyController {
       const policies = await PolicyService.getAllPolicies();
       res.status(200).json(policies.map(transformPolicyForClient));
     } catch (error: any) {
-      console.error(
-        "Error in PolicyController.handleGetAllPolicies:",
-        error.message
-      );
       res
         .status(500)
         .json({
@@ -192,7 +213,6 @@ export class PolicyController {
   ): Promise<void> {
     try {
       const policyId = req.params.id;
-
       if (
         !policyId ||
         policyId === "undefined" ||
@@ -201,20 +221,13 @@ export class PolicyController {
         res.status(400).json({ message: "Invalid Policy ID format." });
         return;
       }
-
       const policy = await PolicyService.getPolicyById(policyId);
-
       if (!policy) {
         res.status(404).json({ message: "Policy not found." });
         return;
       }
-
       res.status(200).json(transformPolicyForClient(policy));
     } catch (error: any) {
-      console.error(
-        "Error in PolicyController.handleGetPolicyById:",
-        error.message
-      );
       res
         .status(500)
         .json({
