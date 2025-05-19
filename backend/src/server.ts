@@ -15,7 +15,7 @@ dotenv.config();
 
 const app: Express = express();
 const PORT = 3001;
-const frontendUrl = "https://claim-management-system-jade.vercel.app/";
+const frontendUrl = "https://claim-management-system-jade.vercel.app";
 
 app.use(cors({ origin: frontendUrl, credentials: true }));
 app.use(express.json());

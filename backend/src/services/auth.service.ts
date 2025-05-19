@@ -255,7 +255,7 @@ export class AuthService {
 
       await user.save({ validateBeforeSave: false });
 
-      const resetURL = `${"https://claim-management-system-jade.vercel.app/"}/reset-password/${resetToken}`;
+      const resetURL = `${"https://claim-management-system-jade.vercel.app"}/reset-password/${resetToken}`;
       console.log("--- PASSWORD RESET LINK (FOR TESTING) ---");
       console.log(resetURL);
       console.log("-----------------------------------------");
