@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const MONGODB_URI =
-  "mongodb+srv://prashantsagarshakya:QBdrnzFpBSc3CtDh@cluster0.ire1c4d.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+  "mongodb+srv://proviewers:V5rP7dwO0Avwp2Zu@cluster0.3b57c.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 let isConnected = false;
 
