@@ -14,8 +14,8 @@ import adminRoutes from "./routes/admin.routes";
 dotenv.config();
 
 const app: Express = express();
-const PORT = process.env.PORT || 3001;
-const frontendUrl = "https://claim-management-system-jade.vercel.app/";
+const PORT = 3001;
+const frontendUrl = process.env.FRONTEND_URL;
 
 app.use(cors({ origin: frontendUrl, credentials: true }));
 app.use(express.json());
