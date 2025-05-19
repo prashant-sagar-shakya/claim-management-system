@@ -80,7 +80,7 @@ export interface AppSettings {
   updatedAt: string;
 }
 
-const API_BASE_URL = "https://claim-management-system-6okl.onrender.com";
+const API_BASE_URL = "https://claim-management-system-6okl.onrender.com/api";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
